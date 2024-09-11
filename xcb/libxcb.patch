@@ -1,0 +1,65 @@
+diff --git a/src/xcb_auth.c b/src/xcb_auth.c
+index 8ebe9a4..2c7591f 100644
+--- a/src/xcb_auth.c
++++ b/src/xcb_auth.c
+@@ -30,7 +30,7 @@
+ #endif
+ 
+ #include <assert.h>
+-#include <X11/Xauth.h>
++//#include <X11/Xauth.h>
+ #include <stdlib.h>
+ #include <time.h>
+ 
+@@ -59,9 +59,10 @@
+ #include "xcbint.h"
+ 
+ #ifdef HASXDMAUTH
+-#include <X11/Xdmcp.h>
++//#include <X11/Xdmcp.h>
+ #endif
+ 
++#if 0
+ enum auth_protos {
+ #ifdef HASXDMAUTH
+     AUTH_XA1,
+@@ -386,3 +387,4 @@ int _xcb_get_auth_info(int fd, xcb_auth_info_t *info, int display)
+     XauDisposeAuth(authptr);
+     return 0;
+ }
++#endif
+diff --git a/src/xcb_util.c b/src/xcb_util.c
+index 0296ce0..53830d3 100644
+--- a/src/xcb_util.c
++++ b/src/xcb_util.c
+@@ -526,7 +526,7 @@ xcb_connection_t *xcb_connect_to_display_with_auth_info(const char *displayname,
+         goto out;
+     }
+ 
+-    if(auth) {
++    /*if(auth) {
+         c = xcb_connect_to_fd(fd, auth);
+         goto out;
+     }
+@@ -537,7 +537,7 @@ xcb_connection_t *xcb_connect_to_display_with_auth_info(const char *displayname,
+         free(ourauth.name);
+         free(ourauth.data);
+     }
+-    else
++    else*/
+         c = xcb_connect_to_fd(fd, 0);
+ 
+     if(c->has_error)
+diff --git a/src/xcbint.h b/src/xcbint.h
+index 235c848..124eb20 100644
+--- a/src/xcbint.h
++++ b/src/xcbint.h
+@@ -232,7 +232,7 @@ int _xcb_conn_wait(xcb_connection_t *c, pthread_cond_t *cond, struct iovec **vec
+ 
+ /* xcb_auth.c */
+ 
+-int _xcb_get_auth_info(int fd, xcb_auth_info_t *info, int display);
++/*int _xcb_get_auth_info(int fd, xcb_auth_info_t *info, int display);*/
+ 
+ #ifdef GCC_HAS_VISIBILITY
+ #pragma GCC visibility pop

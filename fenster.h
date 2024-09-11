@@ -5,18 +5,50 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <objc/NSObjCRuntime.h>
 #include <objc/objc-runtime.h>
-#elif defined(_WIN32)
-#include <windows.h>
+//#elif defined(_WIN32)
+//#include <windows.h>
 #else
 #define _DEFAULT_SOURCE 1
-#include <X11/XKBlib.h>
-#include <X11/Xlib.h>
-#include <X11/keysym.h>
+#define _COSMO_SOURCE
+#include <xcb/xcb.h>
+#include <xcb/xproto.h>
 #include <time.h>
+#include <assert.h>
+#include <string.h>
 #endif
 
 #include <stdint.h>
 #include <stdlib.h>
+
+#include "libc/dce.h"
+#include "libc/nexgen32e/nt2sysv.h"
+#include "libc/nt/dll.h"
+#include "libc/nt/enum/cw.h"
+#include "libc/nt/enum/mb.h"
+#include "libc/nt/enum/sw.h"
+#include "libc/nt/enum/wm.h"
+#include "libc/nt/enum/ws.h"
+#include "libc/nt/enum/bi.h"
+#include "libc/nt/enum/gwlp.h"
+#include "libc/nt/enum/dib.h"
+#include "libc/nt/enum/vk.h"
+#include "libc/nt/enum/cs.h"
+#include "libc/nt/enum/pm.h"
+#include "libc/nt/enum/bitblt.h"
+#include "libc/nt/events.h"
+#include "libc/nt/messagebox.h"
+#include "libc/nt/struct/msg.h"
+#include "libc/nt/struct/wndclass.h"
+#include "libc/nt/struct/bitmapinfoheader.h"
+#include "libc/nt/struct/rgbquad.h"
+#include "libc/nt/struct/paintstruct.h"
+#include "libc/nt/struct/wndclassex.h"
+#include "libc/nt/windows.h"
+#include "libc/nt/paint.h"
+#include "libc/nt/runtime.h"
+
+#define HIWORD(l) ((uint16_t)((uint64_t)(l) >> 16))
+#define LOWORD(l) ((uint16_t)((uint64_t)(l) & 0xffff))
 
 struct fenster {
   const char *title;
@@ -30,14 +62,15 @@ struct fenster {
   int mouse;
 #if defined(__APPLE__)
   id wnd;
-#elif defined(_WIN32)
-  HWND hwnd;
-#else
-  Display *dpy;
-  Window w;
-  GC gc;
-  XImage *img;
 #endif
+//#elif defined(_WIN32)
+  int64_t hwnd;
+//#else
+  xcb_connection_t *conn;
+  uint32_t wid;
+  uint32_t gc_;
+  uint32_t pixmap;
+//#endif
 };
 
 #ifndef FENSTER_API
@@ -164,55 +197,56 @@ FENSTER_API int fenster_loop(struct fenster *f) {
   msg1(void, NSApp, "sendEvent:", id, ev);
   return 0;
 }
-#elif defined(_WIN32)
+#endif
+//#elif defined(_WIN32)
 // clang-format off
 static const uint8_t FENSTER_KEYCODES[] = {0,27,49,50,51,52,53,54,55,56,57,48,45,61,8,9,81,87,69,82,84,89,85,73,79,80,91,93,10,0,65,83,68,70,71,72,74,75,76,59,39,96,0,92,90,88,67,86,66,78,77,44,46,47,0,0,0,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,17,3,0,20,0,19,0,5,18,4,26,127};
 // clang-format on
 typedef struct BINFO{
-    BITMAPINFOHEADER    bmiHeader;
-    RGBQUAD             bmiColors[3];
+    struct NtBitmapInfoHeader    bmiHeader;
+    struct NtRgbQuad             bmiColors[3];
 }BINFO;
-static LRESULT CALLBACK fenster_wndproc(HWND hwnd, UINT msg, WPARAM wParam,
-                                        LPARAM lParam) {
-  struct fenster *f = (struct fenster *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+static int64_t fenster_wndproc(int64_t hwnd, uint32_t msg, uint64_t wParam,
+                                        int64_t lParam) {
+  struct fenster *f = (struct fenster *)GetWindowLongPtr(hwnd, kNtGwlpUserdata);
   switch (msg) {
-  case WM_PAINT: {
-    PAINTSTRUCT ps;
-    HDC hdc = BeginPaint(hwnd, &ps);
-    HDC memdc = CreateCompatibleDC(hdc);
-    HBITMAP hbmp = CreateCompatibleBitmap(hdc, f->width, f->height);
-    HBITMAP oldbmp = SelectObject(memdc, hbmp);
-    BINFO bi = {{sizeof(bi), f->width, -f->height, 1, 32, BI_BITFIELDS}};
+  case kNtWmPaint: {
+    struct NtPaintStruct ps;
+    int64_t hdc = BeginPaint(hwnd, &ps);
+    int64_t memdc = CreateCompatibleDC(hdc);
+    int64_t hbmp = CreateCompatibleBitmap(hdc, f->width, f->height);
+    int64_t oldbmp = SelectObject(memdc, hbmp);
+    BINFO bi = {{sizeof(bi), f->width, -f->height, 1, 32, kNtBiBitfields}};
     bi.bmiColors[0].rgbRed = 0xff;
     bi.bmiColors[1].rgbGreen = 0xff;
     bi.bmiColors[2].rgbBlue = 0xff;
     SetDIBitsToDevice(memdc, 0, 0, f->width, f->height, 0, 0, 0, f->height,
-                      f->buf, (BITMAPINFO *)&bi, DIB_RGB_COLORS);
-    BitBlt(hdc, 0, 0, f->width, f->height, memdc, 0, 0, SRCCOPY);
+                      f->buf, (struct NtBitmapInfo *)&bi, kNtDibRgbColors);
+    BitBlt(hdc, 0, 0, f->width, f->height, memdc, 0, 0, kNtSrccopy);
     SelectObject(memdc, oldbmp);
     DeleteObject(hbmp);
     DeleteDC(memdc);
     EndPaint(hwnd, &ps);
   } break;
-  case WM_CLOSE:
+  case kNtWmClose:
     DestroyWindow(hwnd);
     break;
-  case WM_LBUTTONDOWN:
-  case WM_LBUTTONUP:
-    f->mouse = (msg == WM_LBUTTONDOWN);
+  case kNtWmLbuttondown:
+  case kNtWmLbuttonup:
+    f->mouse = (msg == kNtWmLbuttondown);
     break;
-  case WM_MOUSEMOVE:
+  case kNtWmMousemove:
     f->y = HIWORD(lParam), f->x = LOWORD(lParam);
     break;
-  case WM_KEYDOWN:
-  case WM_KEYUP: {
-    f->mod = ((GetKeyState(VK_CONTROL) & 0x8000) >> 15) |
-             ((GetKeyState(VK_SHIFT) & 0x8000) >> 14) |
-             ((GetKeyState(VK_MENU) & 0x8000) >> 13) |
-             (((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) >> 12);
+  case kNtWmKeydown:
+  case kNtWmKeyup: {
+    f->mod = ((GetKeyState(kNtVkControl) & 0x8000) >> 15) |
+             ((GetKeyState(kNtVkShift) & 0x8000) >> 14) |
+             ((GetKeyState(kNtVkMenu) & 0x8000) >> 13) |
+             (((GetKeyState(kNtVkLwin) | GetKeyState(kNtVkRwin)) & 0x8000) >> 12);
     f->keys[FENSTER_KEYCODES[HIWORD(lParam) & 0x1ff]] = !((lParam >> 31) & 1);
   } break;
-  case WM_DESTROY:
+  case kNtWmDestroy:
     PostQuitMessage(0);
     break;
   default:
@@ -220,97 +254,137 @@ static LRESULT CALLBACK fenster_wndproc(HWND hwnd, UINT msg, WPARAM wParam,
   }
   return 0;
 }
+#include <stdio.h>
 
-FENSTER_API int fenster_open(struct fenster *f) {
-  HINSTANCE hInstance = GetModuleHandle(NULL);
-  WNDCLASSEX wc = {0};
-  wc.cbSize = sizeof(WNDCLASSEX);
-  wc.style = CS_VREDRAW | CS_HREDRAW;
-  wc.lpfnWndProc = fenster_wndproc;
+static int fenster_open_win(struct fenster *f) {
+  int64_t hInstance = GetModuleHandle(NULL);
+  struct NtWndClassEx wc = {0};
+  wc.cbSize = sizeof(struct NtWndClassEx);
+  wc.style = kNtCsVredraw | kNtCsHredraw;
+  wc.lpfnWndProc = NT2SYSV(fenster_wndproc);
   wc.hInstance = hInstance;
-  wc.lpszClassName = f->title;
+  // TODO: use f->title, but first convert it to char16_t
+  static const char16_t title[] = u"hello";
+  wc.lpszClassName = title;
   RegisterClassEx(&wc);
-  f->hwnd = CreateWindowEx(WS_EX_CLIENTEDGE, f->title, f->title,
-                           WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                           f->width, f->height, NULL, NULL, hInstance, NULL);
+  f->hwnd = CreateWindowEx(kNtWsExClientedge, title, title,
+                           kNtWsOverlappedwindow, kNtCwUsedefault, kNtCwUsedefault,
+                           f->width, f->height, 0, 0, hInstance, 0);
 
-  if (f->hwnd == NULL)
+  if (f->hwnd == 0)
     return -1;
-  SetWindowLongPtr(f->hwnd, GWLP_USERDATA, (LONG_PTR)f);
-  ShowWindow(f->hwnd, SW_NORMAL);
+  SetWindowLongPtr(f->hwnd, kNtGwlpUserdata, (int64_t)f);
+  ShowWindow(f->hwnd, kNtSwNormal);
   UpdateWindow(f->hwnd);
   return 0;
 }
 
-FENSTER_API void fenster_close(struct fenster *f) { (void)f; }
+static void fenster_close_win(struct fenster *f) { (void)f; }
 
-FENSTER_API int fenster_loop(struct fenster *f) {
-  MSG msg;
-  while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-    if (msg.message == WM_QUIT)
+static int fenster_loop_win(struct fenster *f) {
+  struct NtMsg msg;
+  while (PeekMessage(&msg, 0, 0, 0, kNtPmRemove)) {
+    if (msg.dwMessage == kNtWmQuit)
       return -1;
     TranslateMessage(&msg);
     DispatchMessage(&msg);
   }
-  InvalidateRect(f->hwnd, NULL, TRUE);
+  InvalidateRect(f->hwnd, NULL, 1);
   return 0;
 }
-#else
+//#else
 // clang-format off
-static int FENSTER_KEYCODES[124] = {XK_BackSpace,8,XK_Delete,127,XK_Down,18,XK_End,5,XK_Escape,27,XK_Home,2,XK_Insert,26,XK_Left,20,XK_Page_Down,4,XK_Page_Up,3,XK_Return,10,XK_Right,19,XK_Tab,9,XK_Up,17,XK_apostrophe,39,XK_backslash,92,XK_bracketleft,91,XK_bracketright,93,XK_comma,44,XK_equal,61,XK_grave,96,XK_minus,45,XK_period,46,XK_semicolon,59,XK_slash,47,XK_space,32,XK_a,65,XK_b,66,XK_c,67,XK_d,68,XK_e,69,XK_f,70,XK_g,71,XK_h,72,XK_i,73,XK_j,74,XK_k,75,XK_l,76,XK_m,77,XK_n,78,XK_o,79,XK_p,80,XK_q,81,XK_r,82,XK_s,83,XK_t,84,XK_u,85,XK_v,86,XK_w,87,XK_x,88,XK_y,89,XK_z,90,XK_0,48,XK_1,49,XK_2,50,XK_3,51,XK_4,52,XK_5,53,XK_6,54,XK_7,55,XK_8,56,XK_9,57};
+//static int FENSTER_KEYCODES[124] = {XK_BackSpace,8,XK_Delete,127,XK_Down,18,XK_End,5,XK_Escape,27,XK_Home,2,XK_Insert,26,XK_Left,20,XK_Page_Down,4,XK_Page_Up,3,XK_Return,10,XK_Right,19,XK_Tab,9,XK_Up,17,XK_apostrophe,39,XK_backslash,92,XK_bracketleft,91,XK_bracketright,93,XK_comma,44,XK_equal,61,XK_grave,96,XK_minus,45,XK_period,46,XK_semicolon,59,XK_slash,47,XK_space,32,XK_a,65,XK_b,66,XK_c,67,XK_d,68,XK_e,69,XK_f,70,XK_g,71,XK_h,72,XK_i,73,XK_j,74,XK_k,75,XK_l,76,XK_m,77,XK_n,78,XK_o,79,XK_p,80,XK_q,81,XK_r,82,XK_s,83,XK_t,84,XK_u,85,XK_v,86,XK_w,87,XK_x,88,XK_y,89,XK_z,90,XK_0,48,XK_1,49,XK_2,50,XK_3,51,XK_4,52,XK_5,53,XK_6,54,XK_7,55,XK_8,56,XK_9,57};
 // clang-format on
-FENSTER_API int fenster_open(struct fenster *f) {
-  f->dpy = XOpenDisplay(NULL);
-  int screen = DefaultScreen(f->dpy);
-  f->w = XCreateSimpleWindow(f->dpy, RootWindow(f->dpy, screen), 0, 0, f->width,
-                             f->height, 0, BlackPixel(f->dpy, screen),
-                             WhitePixel(f->dpy, screen));
-  f->gc = XCreateGC(f->dpy, f->w, 0, 0);
-  XSelectInput(f->dpy, f->w,
-               ExposureMask | KeyPressMask | KeyReleaseMask | ButtonPressMask |
-                   ButtonReleaseMask | PointerMotionMask);
-  XStoreName(f->dpy, f->w, f->title);
-  XMapWindow(f->dpy, f->w);
-  XSync(f->dpy, f->w);
-  f->img = XCreateImage(f->dpy, DefaultVisual(f->dpy, 0), 24, ZPixmap, 0,
-                        (char *)f->buf, f->width, f->height, 32, 0);
+static int fenster_open_xcb(struct fenster *f) {
+  int defscr = 0;
+  f->conn = xcb_connect(NULL, &defscr);
+  assert(f->conn);
+  xcb_screen_t *screen = NULL;
+  xcb_screen_iterator_t iter = xcb_setup_roots_iterator(xcb_get_setup(f->conn));
+  for (; iter.rem; --defscr, xcb_screen_next(&iter)) {
+    if (defscr == 0) {
+      screen = iter.data;
+      break;
+    }
+  }
+  assert(screen);
+  uint32_t mask = XCB_CW_EVENT_MASK;
+  uint32_t values[1] = {
+    XCB_EVENT_MASK_EXPOSURE
+      | XCB_EVENT_MASK_KEY_PRESS
+      | XCB_EVENT_MASK_KEY_RELEASE
+      | XCB_EVENT_MASK_BUTTON_PRESS 
+      | XCB_EVENT_MASK_BUTTON_RELEASE 
+      | XCB_EVENT_MASK_POINTER_MOTION };
+  f->wid = xcb_generate_id(f->conn);
+  xcb_create_window(f->conn, XCB_COPY_FROM_PARENT, f->wid, screen->root, 0, 0, f->width, f->height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, screen->root_visual, mask, values);
+  f->gc_ = xcb_generate_id(f->conn);
+  xcb_create_gc(f->conn, f->gc_, f->wid, 0, NULL);
+  xcb_change_property(f->conn, XCB_PROP_MODE_REPLACE, f->wid, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, strlen(f->title), f->title);
+  xcb_map_window(f->conn, f->wid);
+  xcb_flush(f->conn);
   return 0;
 }
-FENSTER_API void fenster_close(struct fenster *f) { XCloseDisplay(f->dpy); }
-FENSTER_API int fenster_loop(struct fenster *f) {
-  XEvent ev;
-  XPutImage(f->dpy, f->w, f->gc, f->img, 0, 0, 0, 0, f->width, f->height);
-  XFlush(f->dpy);
-  while (XPending(f->dpy)) {
-    XNextEvent(f->dpy, &ev);
-    switch (ev.type) {
-    case ButtonPress:
-    case ButtonRelease:
-      f->mouse = (ev.type == ButtonPress);
+static void fenster_close_xcb(struct fenster *f) { xcb_disconnect(f->conn); }
+static int fenster_loop_xcb(struct fenster *f) {
+  xcb_generic_event_t *ev;
+  // TODO: what is the scanline stuff (third zero)?
+  xcb_put_image(f->conn, XCB_IMAGE_FORMAT_Z_PIXMAP, f->wid, f->gc_, f->width, f->height, 0, 0, 0, 24, 4*f->width*f->height, (uint8_t*)f->buf);
+  xcb_flush(f->conn);
+  while ((ev = xcb_poll_for_event(f->conn))) {
+    switch (ev->response_type & ~0x80) {
+    case XCB_BUTTON_PRESS:
+    case XCB_BUTTON_RELEASE:
+      f->mouse = ((ev->response_type & ~0x80) == XCB_BUTTON_PRESS);
       break;
-    case MotionNotify:
-      f->x = ev.xmotion.x, f->y = ev.xmotion.y;
+    case XCB_MOTION_NOTIFY:
+      f->x = ((xcb_motion_notify_event_t *)ev)->event_x;
+      f->y = ((xcb_motion_notify_event_t *)ev)->event_y;
       break;
-    case KeyPress:
-    case KeyRelease: {
-      int m = ev.xkey.state;
-      int k = XkbKeycodeToKeysym(f->dpy, ev.xkey.keycode, 0, 0);
-      for (unsigned int i = 0; i < 124; i += 2) {
-        if (FENSTER_KEYCODES[i] == k) {
-          f->keys[FENSTER_KEYCODES[i + 1]] = (ev.type == KeyPress);
-          break;
-        }
-      }
-      f->mod = (!!(m & ControlMask)) | (!!(m & ShiftMask) << 1) |
-               (!!(m & Mod1Mask) << 2) | (!!(m & Mod4Mask) << 3);
+    case XCB_KEY_PRESS:
+    case XCB_KEY_RELEASE: {
+      // release is typedef'ed as press
+      //int m = ((xcb_key_press_event_t *)ev)->state;
+      // TODO: all following stuff
+      //int k = XkbKeycodeToKeysym(f->dpy, ev.xkey.keycode, 0, 0);
+      //for (unsigned int i = 0; i < 124; i += 2) {
+      //  if (FENSTER_KEYCODES[i] == k) {
+      //    f->keys[FENSTER_KEYCODES[i + 1]] = (ev.type == KeyPress);
+      //    break;
+      //  }
+      //}
+      //f->mod = (!!(m & ControlMask)) | (!!(m & ShiftMask) << 1) |
+      //         (!!(m & Mod1Mask) << 2) | (!!(m & Mod4Mask) << 3);
     } break;
     }
+    free(ev);
   }
   return 0;
 }
-#endif
+//#endif
 
-#ifdef _WIN32
+FENSTER_API int fenster_open(struct fenster *f) {
+  if (IsWindows())
+    return fenster_open_win(f);
+  else
+    return fenster_open_xcb(f);
+}
+FENSTER_API int fenster_loop(struct fenster *f) {
+  if (IsWindows())
+    return fenster_loop_win(f);
+  else
+    return fenster_loop_xcb(f);
+}
+FENSTER_API void fenster_close(struct fenster *f) {
+  if (IsWindows())
+    return fenster_close_win(f);
+  else
+    return fenster_close_xcb(f);
+}
+
+//#ifdef _WIN32
+#if 0
 FENSTER_API void fenster_sleep(int64_t ms) { Sleep(ms); }
 FENSTER_API int64_t fenster_time() {
   LARGE_INTEGER freq, count;

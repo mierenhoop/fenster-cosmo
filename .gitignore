@@ -8,3 +8,7 @@ a.out
 zig-cache
 zig-out
 Makefile.local
+/xcb/*
+!/xcb/Makefile
+!/xcb/libxcb.patch
+*.dbg
